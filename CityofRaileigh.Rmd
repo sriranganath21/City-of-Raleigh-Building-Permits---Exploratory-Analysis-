@@ -1,0 +1,156 @@
+---
+title: "City of Raileigh Analysis"
+output: html_notebook
+---
+Name Sriranganath Shankam Manjunatha Prasanna
+
+```{r}
+library(dplyr)
+library(caTools)
+library(tidyverse)
+library(caret)
+```
+
+```{r}
+#loading the Dataset
+raileigh = read.csv("Building_Permits.csv")
+#raileigh = read.csv(url("https://s3.amazonaws.com/cc-analytics-datasets/Building_Permits.csv"))
+```
+
+```{r}
+#No of rows and coumns respectively
+nrow(raileigh)
+ncol(raileigh)
+```
+```{r}
+#Total Different Types of Construction
+unique(raileigh$const_type, incomparables = FALSE)
+
+```
+```{r}
+#Mean and Median Stories
+no_na_stories = na.omit(raileigh$numberstories) #removing blanks
+summary(raileigh$numberstories)
+```
+
+Intial Linear Regression for the Data columns Estimated cost and Issue Date year for raw data
+```{r}
+initial_pred=lm(estprojectcost~issueddate_yr,data=raileigh)
+summary(initial_pred)
+```
+The P-values are very high as well as the Rsquare value is too low and its not significant al all.
+
+```{r}
+#Scatter Plot for Estimated Cost
+plot(raileigh$issueddate_yr,raileigh$estprojectcost,pch=19,main="The Scatter Plot for the unclean Data, Estimated Cost vs Isuue Dated Year",xlab = "IssueDate Year", ylab = "EStimated Project Cost")
+
+```
+#Standard Deviation of X and Y of permits
+```{r}
+sd(raileigh$ï..X, na.rm = TRUE)
+sd(raileigh$Y, na.rm = TRUE)
+```
+
+#Estimate cost
+```{r}
+range(raileigh$estprojectcost)  
+summary(raileigh$estprojectcost) #Checking the range and summaryfor knowing the end values of Estimated cost
+boxplot(raileigh$estprojectcost,horizontal=TRUE)  # BoXplot to see how there are so many outliers
+hist(raileigh$estprojectcost, main = "Histogram of Estmated Cost",xlab = "Estimated Project Cost", col = "Blue") # Histogram of Estimated Cost
+```
+This shows the range of the Estimated Project Cost, as the data has very high outliers were getting one big bar on the histogram, so we can remove the outliers and check for the distribution of this field. Box plot also shows the same as well. How the data is positively skewed.
+```{r}
+#Filtering the Estimate cost by Inter quartile range to show the Distribution of Estimated Cost
+filtered_estimate<-raileigh %>% 
+  dplyr::filter(estprojectcost > quantile(estprojectcost, 0.25), 
+                estprojectcost < quantile(estprojectcost, 0.75))
+
+boxplot(filtered_estimate$estprojectcost,horizontal=T)
+hist(filtered_estimate$estprojectcost, main = "Histogram of Estmated Cost after filtering",xlab = "Estimated Project Cost", col = "Blue")
+```
+Now we can see that the Estimated cost is positively skewed , with tail towards the right. We can see many pojects in cost range of 8000 to 22000.
+
+```{r}
+#Issue Date Month
+no_na_issuedatemth = na.omit(raileigh$issueddate_mth) #Removing NA values in Issue date Month
+summary(no_na_issuedatemth)
+hist(no_na_issuedatemth,main = "Histogram of IssueDate Month",xlab = "IssueDate Month", col = "Red")
+```
+I have handled the null values for the Issue month and have plotted the histogram. we can see thatmore projects have been issue in the months of 4-8 in any given year.
+
+```{r}
+#Filtering the data for Workclass = "New", Construction Type ="V  B" and Number of Stories is less than 3
+filtered_raileigh = filter(raileigh, workclassmapped=="New" & const_type=="V  B" & numberstories < 3)
+
+range(filtered_raileigh$issueddate_yr) #checking the range of Issue date year
+```
+Were filetering the data acconding to the conditions Workclass = "New", Construction Type ="V  B" and Number of Stories is less than 3
+Also were checking the issuedate year range, as we can see its shows NA, because it has a lot of NA values. No lwts handle it
+```{r}
+#Finding NA values in both our values for Regression, and replacing the NA values by mean of the other values.
+filtered_raileigh$estprojectcost = ifelse(is.na(filtered_raileigh$estprojectcost),ave(filtered_raileigh$estprojectcost, FUN = function(x) mean(x,na.rm=TRUE)),filtered_raileigh$estprojectcost)
+filtered_raileigh$issueddate_yr = ifelse(is.na(filtered_raileigh$issueddate_yr),ave(filtered_raileigh$issueddate_yr, FUN = function(x) mean(x,na.rm=TRUE)),filtered_raileigh$issueddate_yr)
+
+range(filtered_raileigh$issueddate_yr)  #checking after replacing NA values
+```
+So now its shows the highes year and the lowest year in the coulumn.
+
+```{r}
+range(filtered_raileigh$estprojectcost) #range of projectcost 
+
+```
+# Sampling the whole filetered data set and splitting into 75% train and 25% into test data
+```{r}
+smp_size <- floor(0.75 * nrow(filtered_raileigh)) 
+set.seed(2196) # Set the seed to make your partition reproducible
+train_ind <- sample(seq_len(nrow(filtered_raileigh)), size = smp_size)
+
+train_raileigh <- filtered_raileigh[train_ind, ]
+test_raileigh <- filtered_raileigh[-train_ind, ]
+```
+
+#Linear Regression with Train dataset without cleaning
+```{r}
+raileigh_pred=lm(estprojectcost~issueddate_yr,data=train_raileigh)
+summary(raileigh_pred)
+plot(train_raileigh$issueddate_yr,train_raileigh$estprojectcost,pch=19,main="Linear regression on Train dataset without cleaning",xlab = "IssueDate Year", ylab = "EStimated Project Cost")
+```
+Because of the high range of data and the outlier, which can be seen of the scatter plot we can see much of relation between our variable chosen for Regressio. The P-values for the intercept shows that, IssueDat year (inedependent variable) has some kinda relation with our Dependent Variable (Estimated Cost). But due to the high error of an 982600 and the R square value of 0.003 we can say that this model is not a right fit for these selected variables.
+
+
+#Filtering Train Data, by multiplying the interquartile range by the number 1.5 and adding it to the third quartile and subrtracting it from the first quartile. Any number less than this is a suspected outlier.
+```{r}
+filtered_train<-train_raileigh %>% 
+  dplyr::filter(estprojectcost > quantile(train_raileigh$estprojectcost, .25) - 1.5*IQR(train_raileigh$estprojectcost), 
+                train_raileigh$estprojectcost < quantile(train_raileigh$estprojectcost, .75) + 1.5*IQR(train_raileigh$estprojectcost))
+```
+
+```{r}
+raileigh_pred2=lm(estprojectcost~issueddate_yr,data=filtered_train)
+summary(raileigh_pred2)
+plot(filtered_train$issueddate_yr,filtered_train$estprojectcost,pch=19,main="Linear regression for Train Dataset after cleaning",xlab = "IssueDate Year", ylab = "EStimated Project Cost")
+abline(0,1,col="red",lwd=3)
+```
+After removing the outlier and limiting our Datasets, from the linear regression results we can see that the R squared value increased to 17% which is a significant difference from the previous value.But still it doesnt prove any significant relation between our dependent and independent variables.Providing us with no meaningful insights.
+
+```{r}
+#Predicting values on Test Dataset
+predictions <- predict(raileigh_pred2,test_raileigh)
+output <- cbind(test_raileigh, predictions)
+actuals_preds <- data.frame(cbind(actuals=test_raileigh$estprojectcost, predicteds=predictions))
+```
+#Plotting Actual vs Predicted with test data
+```{r}
+mx <- t(as.matrix(ab[-3]))
+ab = head(actuals_preds,n=25)
+
+barplot(mx,main="Actual vs Predicted", xlab='Estimated Cost',beside = TRUE, 
+        col=c("darkblue","red"))
+legend('topright',fill=c("darkblue","red"),legend=c('Actual','Predicted')) # add a legend
+```
+As we can see the Data is predicting value is similar range, and when compared to the actual data, it is nowhere close.
+
+Conclusion : I feel the linear regression for the variables of Estimated cost has no significant relation to IssueDate year, Probable solution to try would be to see if any other variable in the dataset Raileigh has any relation with it.There is no linear relation whatsoever Also, we can try more advanced Regression models - one model which might work is Robust Regression, which applies re-weighing to remove outlier influence with these kinda data set with heavy outlier influence.
+
+Thank you for your time.
+
